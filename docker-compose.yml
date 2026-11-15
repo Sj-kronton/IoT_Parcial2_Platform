@@ -1,0 +1,59 @@
+name: iot
+networks:
+  iotnet: {}
+volumes:
+  emqx_data: {}
+  pg_data: {}
+  grafana_data: {}
+  caddy_data: {}
+
+services:
+  emqx:
+    image: emqx/emqx:5.8
+    restart: unless-stopped
+    networks: [iotnet]
+    ports:
+      - "1883:1883"
+      - "127.0.0.1:18083:18083"
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_ADMIN_PASS}
+    volumes:
+      - emqx_data:/opt/emqx/data
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    networks: [iotnet]
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: iot
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    networks: [iotnet]
+    environment:
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS}
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    networks: [iotnet]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./panel:/srv/panel:ro
+      - caddy_data:/data
