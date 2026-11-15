@@ -1,0 +1,53 @@
+x-dev: &dev
+  build: ./devices
+  image: iot-devices
+  restart: unless-stopped
+  networks: [iotnet]
+  volumes: ["./devices:/app:ro"]
+
+x-env: &env
+  MQTT_HOST: emqx
+  MQTT_USER: ${MQTT_USER_DEVICES}
+  MQTT_PASS: ${MQTT_PASS_DEVICES}
+
+services:
+  ingestor:
+    build: ./ingestor
+    restart: unless-stopped
+    networks: [iotnet]
+    volumes: ["./ingestor:/app:ro"]
+    depends_on: [emqx, timescaledb]
+    environment:
+      MQTT_HOST: emqx
+      MQTT_USER: ${MQTT_USER_INGESTOR}
+      MQTT_PASS: ${MQTT_PASS_INGESTOR}
+      PG_PASSWORD: ${PG_PASSWORD}
+
+  dev-twins:
+    <<: *dev
+    environment: {<<: *env, DEVICES: "T1,T2,T3"}
+
+  dev-apis:
+    <<: *dev
+    environment:
+      <<: *env
+      DEVICES: "A1,A2,A3"
+      AZMAPS_KEY: ${AZMAPS_KEY}
+      GPS_USER: ${GPS_USER}
+      GPS_PASS: ${GPS_PASS}
+
+  dev-datasets:
+    <<: *dev
+    environment: {<<: *env, DEVICES: "D1,D2"}
+
+  dev-real:
+    build: ./devices
+    image: iot-devices
+    restart: unless-stopped
+    network_mode: host
+    volumes: ["./devices:/app:ro"]
+    environment:
+      MQTT_HOST: localhost
+      MQTT_USER: ${MQTT_USER_DEVICES}
+      MQTT_PASS: ${MQTT_PASS_DEVICES}
+      DEVICES: "R1,R2,R3"
