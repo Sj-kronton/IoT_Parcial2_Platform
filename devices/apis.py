@@ -2,8 +2,9 @@ import json, os
 import requests
 from common import Device
 
-KEY = os.getenv("AZMAPS_KEY", "")
-BASE = "https://atlas.microsoft.com/weather"
+# A1 y A2 usan Open-Meteo (sin clave). Antes usaban Azure Maps, cuya cuenta fue bloqueada.
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
 
 def g(d, *path):
@@ -18,48 +19,51 @@ def g(d, *path):
 class A1(Device):
     kind = "api"
     protocol = "REST -> MQTT"
-    title = "Azure Maps - condiciones actuales (API)"
+    title = "Open-Meteo - condiciones actuales (API)"
     default_interval = 300
     units = {"temp": "C", "hum": "%", "wind_kmh": "km/h", "uv": "", "pressure_mb": "mb",
              "cloud": "%", "rain_mm": "mm"}
     first = True
 
     def read(self):
-        r = requests.get(f"{BASE}/currentConditions/json", timeout=15, params={
-            "api-version": "1.0", "query": os.getenv("A1_QUERY", "7.1182633,-73.1113583"),
-            "subscription-key": KEY, "language": "es-MX"})
+        lat, lon = os.getenv("A1_QUERY", "7.1182633,-73.1113583").split(",")
+        r = requests.get(WEATHER_URL, timeout=15, params={
+            "latitude": lat.strip(), "longitude": lon.strip(),
+            "current": "temperature_2m,relative_humidity_2m,surface_pressure,"
+                       "wind_speed_10m,precipitation,cloud_cover,uv_index"})
         r.raise_for_status()
-        res = r.json()["results"][0]
+        res = r.json()["current"]
         if self.first:
             print(self.id, "ejemplo respuesta:", json.dumps(res)[:700], flush=True)
             self.first = False
-        return {"temp": g(res, "temperature", "value"), "hum": g(res, "relativeHumidity"),
-                "wind_kmh": g(res, "wind", "speed", "value"), "uv": g(res, "uvIndex"),
-                "pressure_mb": g(res, "pressure", "value"), "cloud": g(res, "cloudCover"),
-                "rain_mm": g(res, "precipitationSummary", "pastHour", "value") or 0.0}
+        return {"temp": res.get("temperature_2m"), "hum": res.get("relative_humidity_2m"),
+                "wind_kmh": res.get("wind_speed_10m"), "uv": res.get("uv_index"),
+                "pressure_mb": res.get("surface_pressure"), "cloud": res.get("cloud_cover"),
+                "rain_mm": res.get("precipitation") or 0.0}
 
 
 class A2(Device):
     kind = "api"
     protocol = "REST -> MQTT"
-    title = "Azure Maps - calidad del aire (API)"
+    title = "Open-Meteo - calidad del aire (API)"
     default_interval = 600
     units = {"aqi": "", "pm25": "ug/m3", "pm10": "ug/m3", "o3": "ug/m3",
              "no2": "ug/m3", "co": "ug/m3", "so2": "ug/m3"}
     first = True
 
     def read(self):
-        r = requests.get(f"{BASE}/airQuality/current/json", timeout=15, params={
-            "api-version": "1.1", "query": os.getenv("A2_QUERY", "7.117030478043361,-73.10533865426798"),
-            "subscription-key": KEY, "language": "es-MX", "pollutants": "true"})
+        lat, lon = os.getenv("A2_QUERY", "7.117030478043361,-73.10533865426798").split(",")
+        r = requests.get(AIR_URL, timeout=15, params={
+            "latitude": lat.strip(), "longitude": lon.strip(),
+            "current": "us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,carbon_monoxide,sulphur_dioxide"})
         r.raise_for_status()
-        res = r.json()["results"][0]
+        res = r.json()["current"]
         if self.first:
             print(self.id, "ejemplo respuesta:", json.dumps(res)[:700], flush=True)
             self.first = False
-        pol = {p.get("type"): g(p, "concentration", "value") for p in res.get("pollutants", [])}
-        return {"aqi": res.get("index"), "pm25": pol.get("PM2.5"), "pm10": pol.get("PM10"),
-                "o3": pol.get("O3"), "no2": pol.get("NO2"), "co": pol.get("CO"), "so2": pol.get("SO2")}
+        return {"aqi": res.get("us_aqi"), "pm25": res.get("pm2_5"), "pm10": res.get("pm10"),
+                "o3": res.get("ozone"), "no2": res.get("nitrogen_dioxide"),
+                "co": res.get("carbon_monoxide"), "so2": res.get("sulphur_dioxide")}
 
 
 def flatten(d, prefix=""):
