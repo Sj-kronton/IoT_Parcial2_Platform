@@ -51,3 +51,16 @@ services:
       MQTT_USER: ${MQTT_USER_DEVICES}
       MQTT_PASS: ${MQTT_PASS_DEVICES}
       DEVICES: "R1,R2,R3"
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    networks: [iotnet]
+    volumes: ["./api:/app:ro"]
+    depends_on: [emqx, timescaledb]
+    environment:
+      MQTT_HOST: emqx
+      MQTT_USER: ${MQTT_USER_API}
+      MQTT_PASS: ${MQTT_PASS_API}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PANEL_TOKEN: ${PANEL_TOKEN}

@@ -1,1 +1,102 @@
-<h1>IoT Campus UNAB - en construccion</h1>
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IoT Campus UNAB - Panel de control</title>
+<style>
+ body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
+ header{display:flex;gap:16px;align-items:center;padding:12px 20px;background:#1e293b;flex-wrap:wrap}
+ header h1{font-size:18px;margin:0;flex:1}
+ a{color:#7dd3fc} main{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px;padding:16px}
+ .card{background:#1e293b;border-radius:10px;padding:12px;border:1px solid #334155}
+ h3{margin:0 0 4px;font-size:16px;display:flex;gap:8px;align-items:center} h3 small{color:#94a3b8;font-weight:400;flex:1}
+ .b{font-size:11px;padding:2px 8px;border-radius:10px;background:#475569}
+ .b.on{background:#166534}.b.off{background:#991b1b}.b.pause{background:#92400e}
+ .t{margin:2px 0 8px;font-size:12px;color:#94a3b8}
+ .v{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+ .v span{background:#0f172a;padding:3px 8px;border-radius:6px;font-size:12px}
+ .row{display:flex;gap:6px;margin:5px 0;flex-wrap:wrap}
+ button{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px}
+ button:hover{background:#1d4ed8} input,select{background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:4px;width:95px;font-size:12px}
+ h2{padding:0 20px} table{margin:0 20px 30px;border-collapse:collapse;font-size:12px}
+ td,th{border-bottom:1px solid #334155;padding:4px 12px;text-align:left}
+ #toast{position:fixed;bottom:14px;right:14px;background:#166534;padding:8px 14px;border-radius:8px;display:none}
+</style></head><body>
+<header><h1>IoT Campus UNAB &middot; Panel de control</h1><span id="st"></span>
+<a href="/grafana/" target="_blank">Abrir Grafana</a></header>
+<main id="grid"></main>
+<h2>Ultimos comandos</h2><table id="log"></table>
+<div id="toast"></div>
+<script>
+let TOKEN = sessionStorage.getItem('tk') || prompt('Token del panel');
+sessionStorage.setItem('tk', TOKEN || '');
+const KIND = {T:'Digital Twin', R:'Real', A:'API', D:'Dataset'};
+const EXTRA = {T1:[['HVAC on','hvac','on'],['HVAC off','hvac','off']],
+  T2:[['Bomba ON','pump','on'],['Bomba OFF','pump','off'],['Modo auto','auto','on']],
+  D1:[['Reiniciar','restart','1']], D2:[['Reiniciar','restart','1']]};
+const cards = {};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, opt = {}) {
+  const r = await fetch('/api' + path, {...opt, headers: {'X-Token': TOKEN, 'Content-Type': 'application/json'}});
+  if (r.status === 401) { sessionStorage.removeItem('tk'); alert('Token incorrecto'); location.reload(); }
+  return r.json();
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2500); }
+
+async function send(id, action, value, variable) {
+  const body = {action, value}; if (variable) body.variable = variable;
+  const r = await api(`/devices/${id}/cmd`, {method: 'POST', body: JSON.stringify(body)});
+  toast(`${id}: ${action} ${r.ok ? 'enviado' : 'ERROR'}`);
+  setTimeout(refresh, 1500);
+}
+
+function make(d) {
+  const el = document.createElement('section'); el.className = 'card';
+  const ex = (EXTRA[d.id] || []).map(([l, a, v]) => `<button data-a="${a}" data-v="${v}">${l}</button>`).join('');
+  const sp = d.id === 'T1' ? '<input class="nx" type="number" step="0.5" value="22" title="setpoint"><button class="bn">Setpoint</button>' : '';
+  el.innerHTML = `<h3>${d.id}<small>${KIND[d.id[0]] || ''}</small><span class="b"></span></h3>
+   <p class="t"></p><div class="v"></div>
+   <div class="row"><button data-a="power" data-v="on">Encender</button><button data-a="power" data-v="off">Apagar</button></div>
+   <div class="row"><input class="iv" type="number" min="1" placeholder="intervalo (s)"><button class="bi">Aplicar</button></div>
+   <div class="row"><select class="sv"></select><input class="of" type="number" step="0.1" placeholder="offset"><button class="bc">Calibrar</button><button data-a="reset_calibration" data-v="">Reset</button></div>
+   <div class="row">${ex}${sp}</div>`;
+  el.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    let a = b.dataset.a, v = b.dataset.v;
+    if (b.classList.contains('bi')) { a = 'set_interval'; v = el.querySelector('.iv').value; if (!v) return; }
+    if (b.classList.contains('bn')) { a = 'setpoint'; v = el.querySelector('.nx').value; }
+    if (b.classList.contains('bc')) {
+      const o = el.querySelector('.of').value; if (o === '') return;
+      return send(d.id, 'calibrate', Number(o), el.querySelector('.sv').value);
+    }
+    send(d.id, a, v === '' || v === undefined ? null : v);
+  };
+  document.getElementById('grid').appendChild(el);
+  return el;
+}
+
+function update(d) {
+  const el = cards[d.id] || (cards[d.id] = make(d));
+  const st = d.state || {}, b = el.querySelector('.b');
+  if (st.online === false) { b.textContent = 'offline'; b.className = 'b off'; }
+  else if (st.enabled === false) { b.textContent = 'apagado'; b.className = 'b pause'; }
+  else if (st.online) { b.textContent = 'online'; b.className = 'b on'; }
+  else { b.textContent = 'sin estado'; b.className = 'b'; }
+  el.querySelector('.t').textContent = `${st.name || ''} | intervalo ${st.interval_s ?? '?'} s | offset ${JSON.stringify(st.offset || {})}`;
+  const vars = Object.keys(d.values);
+  el.querySelector('.v').innerHTML = vars.map(k => `<span><b>${esc(k)}</b> ${Math.round(d.values[k].value * 100) / 100} ${esc(d.values[k].unit || '')}</span>`).join('') || '<span>sin datos recientes</span>';
+  const sel = el.querySelector('.sv');
+  if (sel.options.length !== vars.length) sel.innerHTML = vars.map(k => `<option>${esc(k)}</option>`).join('');
+}
+
+async function refresh() {
+  try {
+    const ds = await api('/devices'); ds.forEach(update);
+    const lg = await api('/log?limit=12');
+    document.getElementById('log').innerHTML = '<tr><th>Hora</th><th>Dispositivo</th><th>Accion</th><th>Valor</th><th>Origen</th><th>ACK</th></tr>' +
+      lg.map(x => `<tr><td>${esc(x.time.slice(11, 19))}</td><td>${esc(x.device_id)}</td><td>${esc(x.action)}</td><td>${esc(x.value)}</td><td>${esc(x.who)}</td><td>${x.ack === null ? '-' : x.ack ? 'ok' : 'fallo'}</td></tr>`).join('');
+    document.getElementById('st').textContent = 'actualizado ' + new Date().toLocaleTimeString();
+  } catch (e) { document.getElementById('st').textContent = 'error de conexion'; }
+}
+refresh(); setInterval(refresh, 5000);
+</script></body></html>
