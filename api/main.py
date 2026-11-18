@@ -121,3 +121,6 @@ def log(limit: int = 30):
 
 
 app.include_router(r)
+
+from analysis import router as analysis_router
+app.include_router(analysis_router)
