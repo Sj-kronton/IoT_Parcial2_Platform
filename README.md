@@ -4,7 +4,8 @@ Plataforma IoT en una VM de Azure con Docker: 11 dispositivos (real / digital tw
 broker EMQX (MQTT), TimescaleDB, Grafana, API de control (FastAPI), panel web y analisis con IA.
 
 ## Arquitectura
-(insertar imagen del diagrama)
+<img width="1760" height="1165" alt="Diagrama" src="https://github.com/user-attachments/assets/ff993828-bba2-48ba-b67a-d17d29b4631d" />
+
 
 ## Despliegue
 1. Copiar `.env.example` a `.env` y completar los valores.
